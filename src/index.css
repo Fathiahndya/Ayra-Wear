@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+@theme {
+    /* You can add custom utility extensions here if needed, but we will mostly rely on Tailwind's excellent default palette (violet, fuchsia, slate) for the new theme */
+}
+
+body {
+    @apply antialiased text-slate-800 bg-slate-50;
+}
