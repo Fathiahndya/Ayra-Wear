@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { supabase } from './supabase';
 
 const Login = ({ onLogin, onNavigateRegister }) => {
     const [email, setEmail] = useState('');
@@ -12,13 +13,25 @@ const Login = ({ onLogin, onNavigateRegister }) => {
         setError('');
         setIsLoading(true);
 
-        // Simulasi network request lambat
-        await new Promise(resolve => setTimeout(resolve, 800));
+        try {
+            const { data, error: signInError } = await supabase.auth.signInWithPassword({
+                email,
+                password,
+            });
 
-        if (email === 'admin@ayra.com' && password === '123456') {
+            if (signInError) {
+                if (signInError.message.includes('Invalid login credentials')) {
+                    throw new Error('Email atau Password tidak valid. Coba lagi.');
+                }
+                throw signInError;
+            }
+
+            // Jika berhasil
             onLogin();
-        } else {
-            setError('Email atau Password tidak valid. Coba lagi.');
+
+        } catch (err) {
+            setError(err.message || 'Terjadi kesalahan saat masuk. Coba lagi nanti.');
+        } finally {
             setIsLoading(false);
         }
     };
@@ -35,15 +48,24 @@ const Login = ({ onLogin, onNavigateRegister }) => {
                 <div className="bg-white/80 backdrop-blur-2xl rounded-[2.5rem] p-8 sm:p-10 shadow-[0_20px_60px_-15px_rgba(251,113,133,0.15)] border border-white">
 
                     {/* Header Logo Area */}
-                    <div className="text-center mb-8">
-                        <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-gradient-to-br from-rose-50 to-orange-50 border border-rose-100/50 shadow-inner mb-5 relative group cursor-default">
-                            <div className="absolute inset-0 bg-gradient-to-br from-rose-400 to-orange-400 rounded-3xl opacity-0 group-hover:opacity-10 transition-opacity duration-300" />
-                            <svg className="w-10 h-10 text-rose-500 drop-shadow-sm" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M13.5 21v-7.5a.75.75 0 01.75-.75h3a.75.75 0 01.75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.809c0-.816-.31-1.597-.86-2.176l-3.23-3.39c-.55-.579-1.3-.906-2.11-.906h-5.96c-.81 0-1.56.327-2.11.906L2.86 7.633c-.55.579-.86 1.36-.86 2.176V21m17.63-12.72L21 6.5C19.86 5.5 18 5.5 18 5.5s-1.86 0-3 1-3 1-3 1" />
+                    <div className="text-center mb-8 flex flex-col items-center">
+                        {/* New Brand Logo: Elegant Boutique */}
+                        <div className="w-20 h-20 bg-stone-50 rounded-full flex items-center justify-center border border-stone-200 shadow-inner group py-2 mb-4">
+                            <svg viewBox="0 0 24 24" fill="none" className="w-10 h-10 text-rose-400" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M12 4 C9 4 7 6 7 9 C7 11 9 12 12 14 C15 12 17 11 17 9 C17 6 15 4 12 4 Z M12 4 L12 2" />
+                                <path d="M5 13 L2 18 L22 18 L19 13 M8 18 L8 22 M16 18 L16 22" strokeWidth="0.5"/>
                             </svg>
                         </div>
-                        <h1 className="text-3xl font-black text-rose-600 tracking-tight">Ayra-Wear</h1>
-                        <p className="text-stone-500 font-medium mt-2 text-sm">Selamat Datang Kembali</p>
+                        <div className="flex flex-col items-center mb-6">
+                            <div className="text-4xl text-stone-800 flex items-center gap-2 leading-none" style={{ fontFamily: "'Playfair Display', serif" }}>
+                                <span className="font-semibold italic">Ayra</span>
+                                <span className="font-black text-rose-500">Wear</span>
+                            </div>
+                            <div className="text-[10px] tracking-[0.25em] text-stone-400 uppercase font-black mt-2">Premium Syar'i</div>
+                        </div>
+
+                        <h1 className="text-2xl font-black text-stone-800 tracking-tight">Selamat Datang Kembali</h1>
+                        <p className="text-stone-500 font-medium mt-1 text-sm">Silakan masuk ke akun Ayra-Wear Anda</p>
                     </div>
 
                     <form onSubmit={handleSubmit} className="space-y-5">
@@ -137,14 +159,10 @@ const Login = ({ onLogin, onNavigateRegister }) => {
                     {/* Footer Info / Daftar */}
                     <div className="mt-8 pt-6 border-t border-stone-100 text-center text-stone-500 text-sm font-medium">
                         Belum punya akun?{' '}
-                        <button onClick={onNavigateRegister} className="text-rose-500 font-bold hover:text-rose-600 hover:underline transition-all">
+                        <button onClick={onNavigateRegister} type="button" className="text-rose-500 font-bold hover:text-rose-600 hover:underline transition-all">
                             Daftar Sekarang
                         </button>
                     </div>
-                </div>
-
-                <div className="text-center mt-6 text-stone-400 text-xs font-medium">
-                    Email: <span className="font-bold text-stone-500">admin@ayra.com</span> - Pass: <span className="font-bold text-stone-500">123456</span>
                 </div>
             </div>
 

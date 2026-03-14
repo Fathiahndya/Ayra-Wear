@@ -1,46 +1,105 @@
 import React, { useState } from 'react';
+import { supabase } from './supabase';
 
-const Checkout = ({ cart, total, zakat, onBack }) => {
+const Checkout = ({ cart, total, zakat, onBack, onNavigateOrders, onClearCart, onRemoveItem, onUpdateQuantity }) => {
+    const [step, setStep] = useState(1); // 1: Info Pengiriman, 2: Pembayaran
+
+    // Step 1 State
+    const [name, setName] = useState('');
+    const [phone, setPhone] = useState('');
+    const [address, setAddress] = useState('');
+    const [courier, setCourier] = useState('JNE');
+
+    // Step 2 State
     const [paymentMethod, setPaymentMethod] = useState('');
     const [isPaid, setIsPaid] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [error, setError] = useState('');
+
+    const ongkir = courier === 'JNE' ? 15000 : courier === 'SiCepat' ? 12000 : 25000;
+    const finalTotal = total + zakat + ongkir;
+
+    const handleNextStep = () => {
+        if (!name || !phone || !address) {
+            setError('Mohon lengkapi semua data pengiriman.');
+            return;
+        }
+        setError('');
+        setStep(2);
+    };
 
     const handlePayment = async () => {
         if (!paymentMethod) return;
 
         setIsProcessing(true);
-        // Simulasi proses pembayaran
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        setIsProcessing(false);
-        setIsPaid(true);
+        setError('');
+
+        try {
+            const { data: { user }, error: authError } = await supabase.auth.getUser();
+            if (authError || !user) throw new Error('Sesi anda telah habis. Silakan login kembali.');
+
+            // 1. Simpan Transaksi Utama (Dengan data tambahan pengiriman)
+            const { data: transaction, error: txnError } = await supabase
+                .from('transactions')
+                .insert({
+                    user_id: user.id,
+                    total_amount: finalTotal,
+                    zakat_amount: zakat,
+                    payment_method: paymentMethod,
+                    shipping_name: name,
+                    shipping_address: address,
+                    courier: courier
+                })
+                .select()
+                .single();
+
+            if (txnError) throw txnError;
+
+            // 2. Siapkan data rincian pesanan
+            const itemsToInsert = cart.map(item => ({
+                transaction_id: transaction.id,
+                product_name: item.variant ? `${item.name} (${item.variant})` : item.name,
+                quantity: item.quantity,
+                price: item.price,
+                subtotal: item.price * item.quantity
+            }));
+
+            // 3. Simpan rincian pesanan
+            const { error: itemsError } = await supabase
+                .from('transaction_items')
+                .insert(itemsToInsert);
+
+            if (itemsError) throw itemsError;
+
+            onClearCart(); // Bersihkan keranjang belanja setelah sukses
+            setIsPaid(true);
+
+        } catch (err) {
+            console.error('Error saat checkout:', err);
+            setError(err.message || 'Terjadi kesalahan saat menyimpan pesanan.');
+        } finally {
+            setIsProcessing(false);
+        }
     };
 
     if (isPaid) {
         return (
             <div className="min-h-screen bg-stone-50 flex items-center justify-center p-6 font-sans relative overflow-hidden">
                 <div className="absolute top-0 -inset-x-20 h-96 bg-gradient-to-b from-rose-100/60 to-transparent blur-3xl opacity-60 pointer-events-none" />
-                <div className="absolute left-0 bottom-0 w-[40rem] h-[40rem] bg-orange-100/30 rounded-full blur-3xl opacity-50 pointer-events-none" />
 
-                <div className="max-w-xl w-full bg-white/90 backdrop-blur-xl p-8 sm:p-12 rounded-[2.5rem] shadow-[0_20px_60px_-15px_rgba(251,113,133,0.1)] border border-stone-100 relative z-10 text-center animate-in fade-in zoom-in duration-500">
-                    <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-br from-rose-50 to-orange-50 text-rose-500 mb-8 shadow-inner ring-4 ring-white relative group">
-                        <div className="absolute inset-0 bg-gradient-to-br from-rose-400 to-orange-400 rounded-full opacity-0 group-hover:opacity-10 transition-opacity duration-300" />
-                        <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7"></path>
-                        </svg>
+                <div className="max-w-md w-full bg-white/90 backdrop-blur-xl p-8 rounded-[2.5rem] shadow-[0_20px_60px_-15px_rgba(251,113,133,0.1)] border border-stone-100 relative z-10 text-center animate-in fade-in zoom-in duration-500">
+                    <div className="mx-auto inline-flex items-center justify-center w-20 h-20 rounded-full bg-rose-50 text-rose-500 mb-6 shadow-inner ring-4 ring-white">
+                        <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path></svg>
                     </div>
 
-                    <h1 className="text-3xl sm:text-4xl font-black text-rose-500 mb-4 tracking-tight">Alhamdulillah!</h1>
-                    <p className="text-stone-600 mb-2 text-lg font-bold">Pembayaran berhasil menggunakan {paymentMethod}.</p>
-                    <p className="text-stone-400 mb-8 font-medium italic text-sm">Amanah telah ditunaikan. Semoga membawa keberkahan.</p>
+                    <h1 className="text-2xl font-black text-stone-800 mb-2 tracking-tight">Pesanan Berhasil!</h1>
+                    <p className="text-stone-500 mb-8 text-sm leading-relaxed">Terima kasih banyak. Kami sedang menyiapkan paket Anda untuk dikirim via {courier}.</p>
 
-                    <button
-                        onClick={onBack}
-                        className="w-full sm:w-auto px-10 bg-gradient-to-r from-rose-400 to-orange-400 text-white py-4 rounded-xl font-bold hover:from-rose-500 hover:to-orange-500 transition-all duration-300 shadow-[0_8px_20px_0_rgb(251,113,133,0.25)] hover:-translate-y-0.5 mt-4 group relative overflow-hidden"
-                    >
-                        <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12 opacity-0 group-hover:opacity-100" />
-                        <span className="flex items-center justify-center gap-2">
-                            Kembali ke Dashboard POS
-                        </span>
+                    <button onClick={onBack} className="w-full bg-stone-800 text-white py-3.5 rounded-xl font-bold hover:bg-rose-500 hover:shadow-lg transition-all shadow-md">
+                        Kembali ke Belanja
+                    </button>
+                    <button onClick={onNavigateOrders} className="w-full mt-3 bg-white border-2 border-stone-800 text-stone-800 py-3.5 rounded-xl font-bold hover:bg-stone-50 transition-all active:scale-[0.98]">
+                        Lihat Status Pesanan
                     </button>
                 </div>
             </div>
@@ -48,154 +107,203 @@ const Checkout = ({ cart, total, zakat, onBack }) => {
     }
 
     return (
-        <div className="min-h-screen bg-stone-50 flex items-center justify-center p-4 sm:p-6 font-sans relative overflow-hidden">
-            {/* Soft Background Decor */}
-            <div className="absolute top-0 right-0 w-[50%] h-[50%] bg-gradient-to-bl from-rose-100/40 to-transparent blur-3xl opacity-60 pointer-events-none" />
-            <div className="absolute bottom-0 left-0 w-[50%] h-[50%] bg-gradient-to-tr from-teal-50/40 to-transparent blur-3xl opacity-60 pointer-events-none" />
-
-            <div className="max-w-5xl w-full grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 relative z-10 animate-in fade-in slide-in-from-bottom-8 duration-500">
-
-                {/* Kolom Kiri: Rincian Pesanan */}
-                <div className="bg-white/90 backdrop-blur-xl p-6 sm:p-8 rounded-[2rem] shadow-[0_10px_40px_-10px_rgb(251,113,133,0.05)] border border-stone-100 flex flex-col lg:h-auto lg:max-h-[85vh]">
-                    <div className="flex items-center gap-3 mb-6 pb-4 border-b border-stone-100 shrink-0">
-                        <button onClick={onBack} className="p-2 hover:bg-rose-50 text-stone-500 hover:text-rose-500 rounded-full transition-colors bg-stone-50 border border-stone-100">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
-                        </button>
-                        <h2 className="text-2xl font-black text-stone-800 tracking-tight">Ringkasan Checkout</h2>
-                    </div>
-
-                    <div className="space-y-4 overflow-y-auto custom-scrollbar pr-3 -mr-3 flex-grow mb-6">
-                        {cart.map((item) => (
-                            <div key={item.id} className="flex items-center gap-4 bg-stone-50/80 p-3 sm:p-4 rounded-xl border border-transparent hover:border-rose-100 transition-colors">
-                                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-rose-50/50 flex-shrink-0 shadow-sm border border-stone-200/50">
-                                    <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
-                                </div>
-                                <div className="flex-1 min-w-0 pr-2">
-                                    <h4 className="font-bold text-stone-800 truncate text-sm sm:text-base leading-tight">{item.name}</h4>
-                                    <p className="text-xs sm:text-sm text-stone-500 mt-1">{item.quantity} x <span className="text-rose-500 font-bold">Rp {item.price.toLocaleString()}</span></p>
-                                </div>
-                                <div className="font-mono font-black text-rose-500 text-sm sm:text-base border border-rose-100/50 bg-white px-3 py-1.5 rounded-lg shadow-sm">
-                                    Rp {(item.price * item.quantity).toLocaleString()}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-
-                    <div className="bg-gradient-to-br from-rose-50/50 to-orange-50/50 rounded-2xl p-5 border border-rose-100/50 shrink-0 shadow-inner">
-                        <div className="flex justify-between items-center mb-3 text-stone-500 font-medium pb-3 border-b border-rose-100/50">
-                            <span>Subtotal Produk</span>
-                            <span className="font-mono font-bold text-stone-700">Rp {total.toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between items-center mb-5 text-stone-500 font-medium pb-4 border-b border-rose-100/50">
-                            <span className="flex items-center gap-1.5 text-orange-500">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
-                                Estimasi Zakat
-                            </span>
-                            <span className="text-orange-500 italic font-mono font-bold scale-95">Rp {zakat.toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between items-end">
-                            <span className="text-sm font-bold text-stone-800 uppercase tracking-widest opacity-80 mb-1">Total Tunai</span>
-                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-rose-500 to-orange-500 font-black text-2xl sm:text-3xl tracking-tight">Rp {total.toLocaleString()}</span>
-                        </div>
-                    </div>
+        <div className="min-h-screen bg-stone-50 font-sans pb-24">
+            {/* Header */}
+            <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-xl border-b border-stone-100 p-4 sm:px-6 shadow-sm">
+                <div className="max-w-4xl mx-auto flex items-center gap-4">
+                    <button onClick={() => step === 2 ? setStep(1) : onBack()} className="w-10 h-10 flex items-center justify-center rounded-full bg-stone-50 hover:bg-rose-50 text-stone-600 hover:text-rose-500 transition-colors">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg>
+                    </button>
+                    <h1 className="font-bold text-lg text-stone-800 tracking-tight">Pengiriman & Pembayaran</h1>
                 </div>
+            </header>
 
-                {/* Kolom Kanan: Pembayaran */}
-                <div className="bg-white/95 backdrop-blur-3xl p-6 sm:p-8 rounded-[2rem] shadow-[0_20px_60px_-15px_rgba(251,113,133,0.1)] border border-white flex flex-col lg:h-auto lg:max-h-[85vh]">
-                    <h3 className="text-xl font-black text-stone-800 mb-6 flex items-center gap-2 shrink-0">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-rose-500"><rect width="20" height="14" x="2" y="5" rx="2" /><line x1="2" x2="22" y1="10" y2="10" /></svg>
-                        Pilih Metode Pembayaran
-                    </h3>
+            <main className="max-w-4xl mx-auto p-4 sm:p-6 lg:grid lg:grid-cols-5 lg:gap-8 lg:items-start animate-in fade-in duration-500">
 
-                    <div className="space-y-4 flex-1 overflow-y-auto custom-scrollbar pr-3 -mr-3 mb-6">
-                        {/* Pilihan: QRIS */}
-                        <label className={`flex items-start p-4 sm:p-5 rounded-2xl border-2 cursor-pointer transition-all duration-300 ${paymentMethod === 'QRIS' ? 'border-rose-400 bg-rose-50/50 shadow-md shadow-rose-500/5' : 'border-stone-100 hover:border-rose-200 bg-white hover:bg-stone-50'}`}>
-                            <div className={`w-12 h-12 rounded-xl shadow-sm border flex items-center justify-center mr-4 shrink-0 transition-all ${paymentMethod === 'QRIS' ? 'bg-rose-500 text-white border-rose-500' : 'bg-white text-rose-400 border-stone-100'}`}>
-                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect width="5" height="5" x="3" y="3" rx="1" /><rect width="5" height="5" x="16" y="3" rx="1" /><rect width="5" height="5" x="3" y="16" rx="1" /><path d="M21 16h-3a2 2 0 0 0-2 2v3" /><path d="M21 21v.01" /><path d="M12 7v3a2 2 0 0 1-2 2H7" /><path d="M3 12h.01" /><path d="M12 3h.01" /><path d="M12 16v.01" /><path d="M16 12h1a2 2 0 0 0 2-2V7" /><path d="M21 12v.01" /></svg>
-                            </div>
-                            <div className="flex-1">
-                                <h4 className="font-bold text-stone-800 mb-0.5">QRIS</h4>
-                                <p className="text-sm text-stone-500 font-medium">Gopay, OVO, ShopeePay, DANA</p>
-                            </div>
-                            <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 mt-1 transition-colors ${paymentMethod === 'QRIS' ? 'border-rose-500 bg-rose-500' : 'border-stone-200 bg-white'}`}>
-                                {paymentMethod === 'QRIS' && <div className="w-2 h-2 border-2 border-white rounded-full bg-white scale-50" />}
-                            </div>
-                            <input type="radio" className="hidden" name="payment" value="QRIS" checked={paymentMethod === 'QRIS'} onChange={(e) => setPaymentMethod(e.target.value)} />
-                        </label>
-
-                        {/* Pilihan: Transfer Bank */}
-                        <label className={`flex items-start p-4 sm:p-5 rounded-2xl border-2 cursor-pointer transition-all duration-300 ${paymentMethod === 'Transfer Bank' ? 'border-rose-400 bg-rose-50/50 shadow-md shadow-rose-500/5' : 'border-stone-100 hover:border-rose-200 bg-white hover:bg-stone-50'}`}>
-                            <div className={`w-12 h-12 rounded-xl shadow-sm border flex items-center justify-center mr-4 shrink-0 transition-all ${paymentMethod === 'Transfer Bank' ? 'bg-rose-500 text-white border-rose-500' : 'bg-white text-rose-400 border-stone-100'}`}>
-                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18" /><path d="M3 10h18" /><path d="M5 6l7-3 7 3" /><path d="M4 10v11" /><path d="M20 10v11" /><path d="M8 14v3" /><path d="M12 14v3" /><path d="M16 14v3" /></svg>
-                            </div>
-                            <div className="flex-1">
-                                <h4 className="font-bold text-stone-800 mb-0.5">Transfer Bank</h4>
-                                <p className="text-sm text-stone-500 font-medium">BSI, Mandiri, BCA, BNI</p>
-                            </div>
-                            <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 mt-1 transition-colors ${paymentMethod === 'Transfer Bank' ? 'border-rose-500 bg-rose-500' : 'border-stone-200 bg-white'}`}>
-                                {paymentMethod === 'Transfer Bank' && <div className="w-2 h-2 border-2 border-white rounded-full bg-white scale-50" />}
-                            </div>
-                            <input type="radio" className="hidden" name="payment" value="Transfer Bank" checked={paymentMethod === 'Transfer Bank'} onChange={(e) => setPaymentMethod(e.target.value)} />
-                        </label>
-
-                        {/* Pilihan: Tunai */}
-                        <label className={`flex items-start p-4 sm:p-5 rounded-2xl border-2 cursor-pointer transition-all duration-300 ${paymentMethod === 'Tunai' ? 'border-rose-400 bg-rose-50/50 shadow-md shadow-rose-500/5' : 'border-stone-100 hover:border-rose-200 bg-white hover:bg-stone-50'}`}>
-                            <div className={`w-12 h-12 rounded-xl shadow-sm border flex items-center justify-center mr-4 shrink-0 transition-all ${paymentMethod === 'Tunai' ? 'bg-rose-500 text-white border-rose-500' : 'bg-white text-rose-400 border-stone-100'}`}>
-                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="12" x="2" y="6" rx="2" /><circle cx="12" cy="12" r="2" /><path d="M6 12h.01M18 12h.01" /></svg>
-                            </div>
-                            <div className="flex-1">
-                                <h4 className="font-bold text-stone-800 mb-0.5">Tunai / Cash</h4>
-                                <p className="text-sm text-stone-500 font-medium">Bayar langsung di kasir toko</p>
-                            </div>
-                            <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 mt-1 transition-colors ${paymentMethod === 'Tunai' ? 'border-rose-500 bg-rose-500' : 'border-stone-200 bg-white'}`}>
-                                {paymentMethod === 'Tunai' && <div className="w-2 h-2 border-2 border-white rounded-full bg-white scale-50" />}
-                            </div>
-                            <input type="radio" className="hidden" name="payment" value="Tunai" checked={paymentMethod === 'Tunai'} onChange={(e) => setPaymentMethod(e.target.value)} />
-                        </label>
+                {/* Format Form */}
+                <div className="lg:col-span-3 space-y-6">
+                    {/* Ringkasan Keranjang Kecil (Mobile only) */}
+                    <div className="bg-white p-5 rounded-3xl border border-stone-100 shadow-sm lg:hidden mb-6">
+                        <h3 className="font-bold text-stone-800 mb-4 flex justify-between">
+                            Daftar Pesanan <span className="text-rose-500 bg-rose-50 px-2 py-0.5 rounded-md text-sm">{cart.length} item</span>
+                        </h3>
+                        <div className="space-y-3">
+                            {cart.map(item => (
+                                <div key={`${item.id}-${item.variant}`} className="flex gap-3 pb-3 border-b border-stone-50 last:border-0 last:pb-0">
+                                    <img src={item.image_url || '/images/placeholder.png'} alt={item.name} className="w-16 h-16 rounded-xl object-cover bg-stone-50 border border-stone-100" />
+                                    <div className="flex-1">
+                                        <div className="flex justify-between items-start">
+                                            <h4 className="font-bold text-stone-800 text-sm leading-tight line-clamp-2 pr-2">{item.name}</h4>
+                                            <button onClick={() => onRemoveItem(item.id, item.variant)} className="text-stone-300 hover:text-red-500 transition-colors">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>
+                                            </button>
+                                        </div>
+                                        <p className="text-[10px] text-stone-400 font-medium uppercase tracking-wider mt-0.5">{item.variant}</p>
+                                        <div className="flex justify-between items-center mt-2">
+                                            <div className="flex items-center gap-2 bg-stone-50 rounded-lg p-1 border border-stone-100">
+                                                <button onClick={() => onUpdateQuantity(item.id, item.variant, -1)} className="w-6 h-6 flex items-center justify-center text-stone-400 hover:text-stone-800">-</button>
+                                                <span className="text-xs font-bold w-4 text-center">{item.quantity}</span>
+                                                <button onClick={() => onUpdateQuantity(item.id, item.variant, 1)} className="w-6 h-6 flex items-center justify-center text-stone-400 hover:text-stone-800">+</button>
+                                            </div>
+                                            <span className="font-bold text-rose-500 text-sm">Rp {(item.price * item.quantity).toLocaleString()}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     </div>
 
-                    <div className="shrink-0 pt-2">
-                        <button
-                            onClick={handlePayment}
-                            disabled={!paymentMethod || isProcessing}
-                            className={`w-full py-4 sm:py-5 rounded-2xl font-bold transition-all duration-300 text-lg flex justify-center items-center gap-2 relative overflow-hidden group
-                                ${!paymentMethod
-                                    ? 'bg-stone-100 text-stone-400 cursor-not-allowed shadow-none'
-                                    : isProcessing
-                                        ? 'bg-orange-400 text-white cursor-wait'
-                                        : 'bg-gradient-to-r from-rose-400 to-orange-400 text-white hover:from-rose-500 hover:to-orange-500 shadow-[0_8px_20px_0_rgb(251,113,133,0.25)] hover:shadow-[0_12px_25px_0_rgb(251,113,133,0.35)] hover:-translate-y-1'
-                                }`}
-                        >
-                            {/* Inner shine effect */}
-                            {!(!paymentMethod || isProcessing) && (
-                                <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12 opacity-0 group-hover:opacity-100" />
+                    {step === 1 ? (
+                        <div className="bg-white p-6 sm:p-8 rounded-[2rem] border border-stone-100 shadow-sm">
+                            <div className="flex items-center gap-3 mb-6">
+                                <div className="w-8 h-8 rounded-full bg-stone-800 text-white font-bold flex items-center justify-center text-sm shadow-md">1</div>
+                                <h2 className="text-xl font-black text-stone-800">Alamat Pengiriman</h2>
+                            </div>
+
+                            {error && (
+                                <div className="mb-6 p-3 bg-red-50 text-red-600 rounded-xl text-sm font-bold border border-red-100">{error}</div>
                             )}
 
-                            {isProcessing ? (
-                                <>
-                                    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                                    Memproses...
-                                </>
-                            ) : (
-                                <>
-                                    Konfirmasi Tagihan
-                                    {paymentMethod && <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>}
-                                </>
+                            <div className="space-y-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-stone-500 mb-1.5 ml-1">Nama Lengkap Penerima</label>
+                                        <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full bg-stone-50 border border-stone-200 px-4 py-3 rounded-xl text-sm font-medium focus:outline-none focus:border-rose-400 focus:bg-white transition-colors" placeholder="Cth: Nisa Sabyan" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-stone-500 mb-1.5 ml-1">Nomor WhatsApp Aktif</label>
+                                        <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} className="w-full bg-stone-50 border border-stone-200 px-4 py-3 rounded-xl text-sm font-medium focus:outline-none focus:border-rose-400 focus:bg-white transition-colors" placeholder="Cth: 081234567890" />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-stone-500 mb-1.5 ml-1">Alamat Lengkap (Jalan, RT/RW, Kecamatan)</label>
+                                    <textarea value={address} onChange={e => setAddress(e.target.value)} rows="3" className="w-full bg-stone-50 border border-stone-200 px-4 py-3 rounded-xl text-sm font-medium focus:outline-none focus:border-rose-400 focus:bg-white transition-colors resize-none" placeholder="Cth: Jl. Melati Kav. 24, RT 01/RW 02..."></textarea>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-stone-500 mb-3 ml-1 mt-4">Pilih Ekspedisi</label>
+                                    <div className="grid grid-cols-3 gap-3">
+                                        {['JNE', 'SiCepat', 'Gosend'].map(c => (
+                                            <button
+                                                key={c} onClick={() => setCourier(c)}
+                                                className={`py-3 rounded-xl text-sm font-bold border-2 transition-all ${courier === c ? 'border-rose-400 bg-rose-50 text-rose-600 shadow-sm' : 'border-stone-100 text-stone-500 hover:border-stone-300'}`}
+                                            >
+                                                {c}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button onClick={handleNextStep} className="w-full mt-8 bg-stone-800 text-white py-4 rounded-xl font-bold shadow-md hover:bg-stone-700 transition-colors flex justify-center items-center gap-2">
+                                Lanjut ke Pembayaran <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="bg-white p-6 sm:p-8 rounded-[2rem] border border-stone-100 shadow-sm">
+                            <div className="flex items-center gap-3 mb-6">
+                                <div className="w-8 h-8 rounded-full bg-rose-500 text-white font-bold flex items-center justify-center text-sm shadow-md">2</div>
+                                <h2 className="text-xl font-black text-rose-600">Pilih Pembayaran</h2>
+                            </div>
+
+                            <div className="mb-6 p-4 bg-stone-50 border border-stone-100 rounded-xl relative overflow-hidden group">
+                                <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-rose-100 to-transparent rounded-full blur-xl transform translate-x-1/2 -translate-y-1/2" />
+                                <p className="text-xs font-bold text-stone-400 mb-1">Kirim Ke</p>
+                                <p className="font-bold text-stone-800 text-sm mb-0.5">{name} <span className="font-normal text-stone-500">({phone})</span></p>
+                                <p className="text-xs text-stone-500 line-clamp-1">{address}</p>
+                                <p className="text-xs font-bold text-rose-500 mt-2">Kurir: {courier}</p>
+                                <button onClick={() => setStep(1)} className="absolute top-4 right-4 text-xs font-bold text-rose-500 bg-rose-50 px-3 py-1.5 rounded-lg border border-rose-100 hover:bg-rose-100 transition-colors">Ubah</button>
+                            </div>
+
+                            {error && (
+                                <div className="mb-6 p-3 bg-red-50 text-red-600 rounded-xl text-sm font-bold border border-red-100">{error}</div>
                             )}
-                        </button>
+
+                            <div className="space-y-3">
+                                {[
+                                    { id: 'QRIS', name: 'QRIS (Bayar Instan)', icon: '📱', desc: 'Gopay, OVO, Dana, LinkAja' },
+                                    { id: 'Bank Transfer', name: 'Transfer Bank (Semua Bank)', icon: '🏦', desc: 'Bisa transfer dari bank manapun' },
+                                    { id: 'COD', name: 'Bayar di Tempat (COD)', icon: '📦', desc: 'Bayar saat paket sampai' }
+                                ].map((method) => (
+                                    <label key={method.id} className={`flex items-center p-4 rounded-xl border-2 cursor-pointer transition-all duration-300 ${paymentMethod === method.id ? 'border-rose-400 bg-rose-50/50 shadow-sm' : 'border-stone-100 hover:border-rose-200 bg-white'}`}>
+                                        <div className="w-12 h-12 rounded-xl bg-white border border-stone-100 flex items-center justify-center mr-4 shadow-sm text-xl">
+                                            {method.icon}
+                                        </div>
+                                        <div className="flex-1">
+                                            <h4 className="font-bold text-stone-800 text-sm">{method.name}</h4>
+                                            <p className="text-[10px] text-stone-400 font-medium uppercase tracking-wider">{method.desc}</p>
+                                        </div>
+                                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${paymentMethod === method.id ? 'border-rose-500 bg-rose-500' : 'border-stone-300'}`}>
+                                            {paymentMethod === method.id && <div className="w-1.5 h-1.5 bg-white rounded-full"></div>}
+                                        </div>
+                                        <input type="radio" className="hidden" name="payment" value={method.id} checked={paymentMethod === method.id} onChange={(e) => setPaymentMethod(e.target.value)} />
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Ringkasan Belanja (Desktop & Sticky Bottom Mobile) */}
+                <div className="lg:col-span-2 relative">
+                    <div className="hidden lg:block bg-white p-6 rounded-[2rem] border border-stone-100 shadow-sm sticky top-24 mb-6">
+                        <h3 className="font-bold text-stone-800 mb-4 pb-4 border-b border-stone-50">Daftar Pesanan ({cart.length})</h3>
+                        <div className="space-y-4 max-h-64 overflow-y-auto mb-4 pr-2">
+                            {cart.map(item => (
+                                <div key={`${item.id}-${item.variant}`} className="flex gap-3 group">
+                                    <img src={item.image_url || '/images/placeholder.png'} alt={item.name} className="w-12 h-12 rounded-lg object-cover bg-stone-50 border border-stone-100 shrink-0" />
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex justify-between items-start">
+                                            <h4 className="font-bold text-stone-800 text-[11px] line-clamp-1 pr-1">{item.name}</h4>
+                                            <button onClick={() => onRemoveItem(item.id, item.variant)} className="text-stone-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>
+                                            </button>
+                                        </div>
+                                        <p className="text-[9px] text-stone-400 uppercase tracking-tight">{item.variant}</p>
+                                        <div className="flex justify-between items-center mt-1">
+                                            <div className="flex items-center gap-1.5 bg-stone-50 rounded-md p-0.5 px-2 border border-stone-100 scale-90 -ml-1">
+                                                <button onClick={() => onUpdateQuantity(item.id, item.variant, -1)} className="text-[10px] text-stone-400 hover:text-stone-800">-</button>
+                                                <span className="text-[10px] font-bold min-w-[8px] text-center">{item.quantity}</span>
+                                                <button onClick={() => onUpdateQuantity(item.id, item.variant, 1)} className="text-[10px] text-stone-400 hover:text-stone-800">+</button>
+                                            </div>
+                                            <p className="font-bold text-rose-500 text-[11px]">Rp {(item.price * item.quantity).toLocaleString()}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="bg-stone-800 text-white p-6 sm:p-8 lg:rounded-[2rem] rounded-t-[2rem] shadow-2xl lg:shadow-md fixed bottom-0 left-0 w-full lg:sticky lg:top-auto z-50">
+                        <h3 className="font-bold text-stone-300 text-sm mb-4">Ringkasan Pembayaran</h3>
+
+                        <div className="space-y-2 text-sm text-stone-300 mb-4">
+                            <div className="flex justify-between"><span>Subtotal Produk</span><span className="font-mono">Rp {total.toLocaleString()}</span></div>
+                            <div className="flex justify-between"><span>Ongkos Kirim ({courier})</span><span className="font-mono">Rp {ongkir.toLocaleString()}</span></div>
+                            <div className="flex justify-between items-center text-orange-300/80"><span className="flex items-center gap-1"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 2v20 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>Estimasi Zakat</span><span className="font-mono text-xs">Rp {zakat.toLocaleString()}</span></div>
+                        </div>
+
+                        <div className="flex justify-between items-end border-t border-stone-600/50 pt-4 mb-5">
+                            <span className="text-stone-300 text-sm">Total Tagihan</span>
+                            <span className="text-2xl font-black text-white font-mono tracking-tight">Rp {finalTotal.toLocaleString()}</span>
+                        </div>
+
+                        {step === 2 && (
+                            <button
+                                onClick={handlePayment}
+                                disabled={!paymentMethod || isProcessing}
+                                className={`w-full py-4 rounded-xl font-bold transition-all text-base flex justify-center items-center gap-2 group relative overflow-hidden
+                                    ${!paymentMethod || isProcessing ? 'bg-stone-700 text-stone-500 cursor-not-allowed' : 'bg-gradient-to-r from-rose-500 to-orange-400 text-white hover:shadow-[0_0_20px_rgba(251,113,133,0.4)] hover:-translate-y-0.5'}`}
+                            >
+                                {paymentMethod && !isProcessing && <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12 opacity-0 group-hover:opacity-100" />}
+                                {isProcessing ? 'Memproses...' : 'Selesaikan Pembayaran'}
+                                {!isProcessing && paymentMethod && <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14 M12 5l7 7-7 7" /></svg>}
+                            </button>
+                        )}
                     </div>
                 </div>
-            </div>
-
-            <style>{`
-                .custom-scrollbar::-webkit-scrollbar { width: 5px; }
-                .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-                .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #fecdd3; border-radius: 10px; }
-                .custom-scrollbar::-webkit-scrollbar-thumb:hover { background-color: #fda4af; }
-                @keyframes shimmer {
-                    100% { transform: translateX(100%); }
-                }
-            `}</style>
+            </main>
         </div>
     );
 };

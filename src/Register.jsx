@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { supabase } from './supabase';
 
 const Register = ({ onNavigateLogin }) => {
     const [name, setName] = useState('');
@@ -12,11 +13,33 @@ const Register = ({ onNavigateLogin }) => {
         setError('');
         setIsLoading(true);
 
-        // Simulasi network request lambat
-        await new Promise(resolve => setTimeout(resolve, 800));
-        setIsLoading(false);
-        // Simulasi berhasil, langsung back ke login
-        onNavigateLogin();
+        try {
+            const { data, error: signUpError } = await supabase.auth.signUp({
+                email,
+                password,
+                options: {
+                    data: {
+                        full_name: name,
+                    }
+                }
+            });
+
+            if (signUpError) {
+                // Formatting common Supabase auth errors
+                if (signUpError.message.includes('already registered')) {
+                    throw new Error('Email ini sudah terdaftar. Silakan login.');
+                }
+                throw signUpError;
+            }
+
+            // Jika berhasil, panggil navigasi login (opsional bisa auto-login)
+            onNavigateLogin();
+
+        } catch (err) {
+            setError(err.message || 'Terjadi kesalahan saat mendaftar. Coba lagi nanti.');
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     return (
@@ -31,15 +54,23 @@ const Register = ({ onNavigateLogin }) => {
                 <div className="bg-white/80 backdrop-blur-2xl rounded-[2.5rem] p-8 sm:p-10 shadow-[0_20px_60px_-15px_rgba(251,113,133,0.15)] border border-white">
 
                     {/* Header */}
-                    <div className="text-center mb-8">
-                        <div className="inline-flex items-center justify-center w-16 h-16 rounded-3xl bg-gradient-to-br from-rose-50 to-orange-50 border border-rose-100/50 shadow-inner mb-4 relative group cursor-default">
-                            <div className="absolute inset-0 bg-gradient-to-br from-rose-400 to-orange-400 rounded-3xl opacity-0 group-hover:opacity-10 transition-opacity duration-300" />
-                            <svg className="w-8 h-8 text-rose-500 drop-shadow-sm" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                    <div className="text-center mb-8 flex flex-col items-center">
+                        <div className="w-16 h-16 bg-stone-50 rounded-full flex items-center justify-center border border-stone-200 shadow-inner py-2 mb-3">
+                            <svg viewBox="0 0 24 24" fill="none" className="w-8 h-8 text-rose-400" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M12 4 C9 4 7 6 7 9 C7 11 9 12 12 14 C15 12 17 11 17 9 C17 6 15 4 12 4 Z M12 4 L12 2" />
+                                <path d="M5 13 L2 18 L22 18 L19 13 M8 18 L8 22 M16 18 L16 22" strokeWidth="0.5"/>
                             </svg>
                         </div>
-                        <h1 className="text-2xl font-black text-rose-600 tracking-tight">Buat Akun Baru</h1>
-                        <p className="text-stone-500 font-medium mt-1 text-sm">Mulai perjalanan bisnis Anda bersama Ayra-Wear</p>
+                        <div className="flex flex-col items-center mb-6">
+                            <div className="text-3xl text-stone-800 flex items-center gap-1.5 leading-none" style={{ fontFamily: "'Playfair Display', serif" }}>
+                                <span className="font-semibold italic">Ayra</span>
+                                <span className="font-black text-rose-500">Wear</span>
+                            </div>
+                            <div className="text-[8px] tracking-[0.25em] text-stone-400 uppercase font-black mt-1.5">Premium Syar'i</div>
+                        </div>
+
+                        <h1 className="text-2xl font-black text-stone-800 tracking-tight">Buat Akun Baru</h1>
+                        <p className="text-stone-500 font-medium mt-1 text-sm">Mulai perjalanan toko online Anda bersama Ayra-Wear</p>
                     </div>
 
                     <form onSubmit={handleSubmit} className="space-y-4">
@@ -104,6 +135,14 @@ const Register = ({ onNavigateLogin }) => {
                             </div>
                         </div>
 
+                        {/* Error Message */}
+                        {error && (
+                            <div className="flex items-center gap-1.5 text-red-500 text-sm font-medium animate-in fade-in slide-in-from-top-1 bg-red-50 p-3 rounded-xl border border-red-100 mt-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" x2="12" y1="8" y2="12" /><line x1="12" x2="12.01" y1="16" y2="16" /></svg>
+                                <span>{error}</span>
+                            </div>
+                        )}
+
                         {/* Submit Button */}
                         <button
                             type="submit"
@@ -128,7 +167,7 @@ const Register = ({ onNavigateLogin }) => {
                     {/* Footer Info */}
                     <div className="mt-8 pt-6 border-t border-stone-100 text-center text-stone-500 text-sm font-medium">
                         Sudah punya akun?{' '}
-                        <button onClick={onNavigateLogin} className="text-rose-500 font-bold hover:text-rose-600 hover:underline transition-all">
+                        <button onClick={onNavigateLogin} type="button" className="text-rose-500 font-bold hover:text-rose-600 hover:underline transition-all">
                             Masuk di sini
                         </button>
                     </div>
